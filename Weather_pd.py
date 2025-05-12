@@ -4,6 +4,7 @@ from datetime import timedelta
 import pandas as pd
 import requests
 import numpy as np
+import sqlite3
 import time
 import os
 
@@ -27,6 +28,7 @@ def get_data():
 
 def get_value_of_weather(p_dict_values):
     out = []
+
     for k in p_dict_values['data']:
         for x in k.get("coordinates"):
             for item in x["dates"]:
@@ -70,9 +72,27 @@ def daemon_task():
                 exists = pd.read_sql_query(query, conn)
 
                 if exists.empty:
-                    print("Table does not exist")
-                    new_df.to_sql("weather_new", con=conn, if_exists="append", index=False)
-                    conn.commit()
+                    raw_conn = engine.raw_connection()
+                    cursor = raw_conn.cursor()
+                    cursor.execute("""
+                              CREATE TABLE IF NOT EXISTS weather_new (
+                                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                  user TEXT,
+                                  status TEXT,
+                                  lat FLOAT,
+                                  lon FLOAT,
+                                  date TEXT,
+                                  value FLOAT,
+                                  insert_date TEXT,
+                                  flg TEXT
+                              )
+                          """)
+                    raw_conn.commit()
+                    cursor.close()
+                    raw_conn.close()
+
+                    new_df.to_sql("weather_new", con=engine, if_exists="append", index=False)
+
                 else:
                     old_df = pd.read_sql("SELECT * FROM weather_new", con=conn)
 
@@ -90,7 +110,7 @@ def daemon_task():
                         old_df.rename(columns={'value': 'old_value'}), on=pk, how='left'
                     ).assign(
                         has_match=lambda x: ~x.old_value.isna(),
-                        different_value=lambda x: x.value == x.old_value,
+                        different_value=lambda x: np.abs(x.value-x.old_value) > 0.0001,
                         strategy=lambda x: np.where(x.has_match, np.where(x.different_value, 'update', 'skip'),
                                                     'insert')
                     )
@@ -113,13 +133,16 @@ def daemon_task():
                         columns={'user_x': 'user', 'status_x': 'status', 'insert_date_x': 'insert_date','flg_x': 'flg'})
                     if 'flg' in update_df.columns:
                         update_df['flg'] = 'U'
-                    update_df = update_df[['user', 'status', 'lat', 'lon', 'date', 'value', 'insert_date', 'flg']]
-                    print(update_df.head())
-                    print(update_df.count())
+                    update_df = update_df[['id', 'user', 'status', 'lat', 'lon', 'date', 'value', 'insert_date', 'flg']]
 
-
-
-`
+                    commands ="update weather_new set value = '" + update_df['value'].astype(str) +"',insert_date = '"+update_df['insert_date'].astype(str)+"', flg ='"+"U" +"' where id = " + update_df['id'].astype(str) + ";"
+                    sql = "\n".join(commands)
+                    print(sql)
+                    raw_conn = engine.raw_connection()
+                    cursor = raw_conn.cursor()
+                    cursor.executescript(sql)
+                    conn.commit()
+                    conn.close()
 
                     print(f"insert_df.shape={insert_df.shape}")
                     print(f"update_df.shape={update_df.shape}")
