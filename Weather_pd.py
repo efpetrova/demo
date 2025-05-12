@@ -37,7 +37,8 @@ def get_value_of_weather(p_dict_values):
                     'lon': x['lon'],
                     'date': item['date'],
                     'value': item['value'],
-                    'insert_date': (datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S %Z%z")
+                    'insert_date': (datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S %Z%z"),
+                    'flg': 'I'
                 }
                 out.append(record)
     print(len(out))
@@ -99,14 +100,26 @@ def daemon_task():
                     # Extract records to insert
                     insert_df = list_of_data[list_of_data["strategy"] == 'insert']
                     insert_df = insert_df.rename(
-                        columns={'user_x': 'user', 'status_x': 'status', 'insert_date_x': 'insert_date'})
-                    insert_df = insert_df[['user', 'status', 'lat', 'lon', 'date', 'value', 'insert_date']]
+                        columns={'user_x': 'user', 'status_x': 'status', 'insert_date_x': 'insert_date','flg_x': 'flg'})
+                    insert_df = insert_df[['user', 'status', 'lat', 'lon', 'date', 'value', 'insert_date','flg']]
+                    print(insert_df.head())
 
                     if not insert_df.empty:
                         insert_df.to_sql("weather_new", con=engine, if_exists="append", index=False)
                         print("Data has inserted successfully!")
 
                     update_df = list_of_data[list_of_data["strategy"] == 'update']
+                    update_df = update_df.rename(
+                        columns={'user_x': 'user', 'status_x': 'status', 'insert_date_x': 'insert_date','flg_x': 'flg'})
+                    if 'flg' in update_df.columns:
+                        update_df['flg'] = 'U'
+                    update_df = update_df[['user', 'status', 'lat', 'lon', 'date', 'value', 'insert_date', 'flg']]
+                    print(update_df.head())
+                    print(update_df.count())
+
+
+
+`
 
                     print(f"insert_df.shape={insert_df.shape}")
                     print(f"update_df.shape={update_df.shape}")
